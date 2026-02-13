@@ -37,3 +37,22 @@ acc_factor = (G * body2.mass) / dist_soft
 body1.ax += acc_factor * dx
 body1.ay += acc_factor * dy
 body1.az += acc_factor * dz
+#--- 3. Leapfrog Integration--
+def leapfrog_step(bodies, dt, G, softening):
+# First Half-Kick
+for body in bodies:
+body.vx += 0.5 * body.ax * dt
+body.vy += 0.5 * body.ay * dt
+body.vz += 0.5 * body.az * dt
+# Drift
+for body in bodies:
+body.x += body.vx * dt
+body.y += body.vy * dt
+body.z += body.vz * dt
+# Update Forces
+calculate_forces(bodies, G, softening)
+# Second Half-Kick
+for body in bodies:
+body.vx += 0.5 * body.ax * dt
+body.vy += 0.5 * body.ay * dt
+body.vz += 0.5 * body.az * dt

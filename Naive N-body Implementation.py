@@ -56,3 +56,57 @@ for body in bodies:
 body.vx += 0.5 * body.ax * dt
 body.vy += 0.5 * body.ay * dt
 body.vz += 0.5 * body.az * dt
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+from matplotlib.animation import FuncAnimation
+#---4. File Loader (New!)--
+def load_bodies_from_csv(filename):
+df = pd.read_csv(filename)
+bodies = []
+# Mapping CSV columns to our class
+for index, row in df.iterrows():
+b = Body(
+mass=row[’mass’],
+x=row[’distanceX’],
+y=row[’distanceY’],
+z=row[’distanceZ’],
+vx=row[’velocityX’],
+vy=row[’velocityY’],
+vz=row[’velocityZ’]
+)
+bodies.append(b)
+return bodies
+#---5. Main Simulation & Visualization--
+def run_simulation():
+# REAL PHYSICS CONSTANTS
+G = 6.67430e-11 # Real Gravitational Constant
+softening = 1e9 # 1,000,000 km softening
+dt = 3600 * 24 # 1 Day per step
+steps = 200 # Number of frames
+# Load Data (Change filename to 500 or 1000 to test others)
+filename = ’stable_random_system100.csv’
+bodies = load_bodies_from_csv(filename)
+print(f"Loaded {len(bodies)} bodies from {filename}")
+# Initial Force Calculation
+calculate_forces(bodies, G, softening)
+# Visualization Setup
+fig, ax = plt.subplots(figsize=(8, 8))
+limit = 5e12 # 5 trillion meters
+ax.set_xlim(-limit, limit)
+ax.set_ylim(-limit, limit)
+ax.set_aspect(’equal’)
+ax.set_facecolor(’black’)
+points, = ax.plot([], [], ’o’, ms=2, color=’white’)
+def update(frame):
+leapfrog_step(bodies, dt, G, softening)
+x_data = [b.x for b in bodies]
+y_data = [b.y for b in bodies]
+points.set_data(x_data, y_data)
+return points,
+print("Running Simulation Window...")
+anim = FuncAnimation(fig, update, frames=steps, interval=20, blit=
+True)
+plt.show()
+if __name__ == "__main__":
+run_simulation()

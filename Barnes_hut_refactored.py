@@ -139,10 +139,10 @@ def insert_particle(body_idx, node_idx):
             node_com_z[node_idx] = pz[body_idx]
             return
         else:
+             # re-insert existing body that was here
+            existing = node_particle[node_idx]  # old body index
             # occupied leaf - subdivide and re-insert both
             subdivide(node_idx)
-            # re-insert existing body that was here
-            existing = node_particle[node_idx]  # old body index
             insert_particle(existing, node_idx)
             # insert new body
             insert_particle(body_idx, node_idx)
@@ -437,8 +437,8 @@ def run_tests():
                     traverse(c)
     traverse(root)
     missing = [i for i,f in enumerate(found) if not f]
-    assert len(missing) == 0, f"FAIL: particles missing: {missing}"
-    print("  PASS: all particles found in tree")
+    assert len(missing) == 0, f"Fail: particles missing: {missing}"
+    print("Pass: all particles found in tree")
 
     # test 3: root com matches direct calculation
     total_m = sum(mass[:n])
@@ -446,19 +446,19 @@ def run_tests():
     cy_dir  = sum(mass[i]*py[i] for i in range(n)) / total_m
     cz_dir  = sum(mass[i]*pz[i] for i in range(n)) / total_m
     tol = 1e-6 * max(abs(cx_dir), abs(cy_dir), abs(cz_dir), 1.0)
-    assert abs(node_com_x[root] - cx_dir) < tol, "FAIL: com x mismatch"
-    assert abs(node_com_y[root] - cy_dir) < tol, "FAIL: com y mismatch"
-    assert abs(node_com_z[root] - cz_dir) < tol, "FAIL: com z mismatch"
-    print("  PASS: centre of mass correct")
+    assert abs(node_com_x[root] - cx_dir) < tol, "Fail: com x mismatch"
+    assert abs(node_com_y[root] - cy_dir) < tol, "Fail: com y mismatch"
+    assert abs(node_com_z[root] - cz_dir) < tol, "Fail: com z mismatch"
+    print("Pass: centre of mass correct")
 
     # test 4: forces are finite (no NaN or Inf)
     calculate_forces_bh(root)
     for i in range(n):
-        assert math.isfinite(ax[i]), f"FAIL: ax[{i}] is NaN/Inf"
-        assert math.isfinite(ay[i]), f"FAIL: ay[{i}] is NaN/Inf"
-        assert math.isfinite(az[i]), f"FAIL: az[{i}] is NaN/Inf"
-    print("  PASS: all forces finite")
-    print("--- all tests passed ---\n")
+        assert math.isfinite(ax[i]), f"Fail: ax[{i}] is NaN/Inf"
+        assert math.isfinite(ay[i]), f"Fail: ay[{i}] is NaN/Inf"
+        assert math.isfinite(az[i]), f"Fail: az[{i}] is NaN/Inf"
+    print("Pass: all forces finite")
+    print("all tests passed\n")
 
 
 # run_simulation: main simulation loop

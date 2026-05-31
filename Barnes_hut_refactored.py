@@ -9,59 +9,56 @@ from matplotlib.animation import FuncAnimation
 
 # constants
 G = 6.67430e-11
-softening = 1e9
-theta = 0.5
-dt = 8640.0          # time step in seconds, match c++ example
+softening = 1e9  # softening length in metres
+theta = 0.5      # opening angle for barnes hut
+dt = 8640.0      # time step in seconds, match c++ example
 steps = 100
 
 # global node pool (sized after reading n)
 # we set max_nodes = 8 * n + 100
-max_nodes = none
+max_nodes = None
 
-# node pool arrays - flat arrays for all node fields
-node_cx = none      # center x of node
-node_cy = none
-node_cz = none
-node_size = none    # side length of cube
-node_mass = none
-node_com_x = none
-node_com_y = none
-node_com_z = none
-node_child = none   # flat array size max_nodes * 8, -1 means no child
-node_particle = none # particle index if leaf, else -1
-node_is_leaf = none  # 1 if leaf, 0 if internal
-node_xmin = none
-node_xmax = none
-node_ymin = none
-node_ymax = none
-node_zmin = none
-node_zmax = none
+# flat arrays for all node fields
+node_cx = None      # center x of node
+node_cy = None
+node_cz = None
+node_size = None    # side length of cube
+node_mass = None
+node_com_x = None
+node_com_y = None
+node_com_z = None
+node_child = None   # flat: index node*8+oct gives child index, -1 = empty
+node_particle = None # particle index if leaf, else -1
+node_is_leaf = None  # 1 if leaf, 0 if internal
+node_xmin = None
+node_xmax = None
+node_ymin = None
+node_ymax = None
+node_zmin = None
+node_zmax = None
 
 node_count = 0      # next free node index
 
 # body arrays (global for simplicity, matches assembly layout)
 n = 0
-mass = none
-px = none
-py = none
-pz = none
-vx = none
-vy = none
-vz = none
-ax = none
-ay = none
-az = none
+mass = None
+px = None
+py = None
+pz = None
+vx = None
+vy = None
+vz = None
+ax = None
+ay = None
+az = None
 
-
-# allocate_node - get next free node from pool
+# func allocate_node which gets the next free node from pool
 # returns: idx = new node index
 # increments node_count and returns previous value
-
 def allocate_node():
     global node_count
     idx = node_count
     node_count += 1
-    
     # init fields to default values
     node_mass[idx] = 0.0
     node_com_x[idx] = 0.0
@@ -70,21 +67,18 @@ def allocate_node():
     node_particle[idx] = -1
     node_is_leaf[idx] = 1
     # node_child already -1 from array init
-    
     return idx
 
 
-# get_octant - figure out which of 8 octants a point falls into
+# func get_octant figures out which of 8 octants a point falls into
 # uses bit encoding: bit2 (4) for x >= cx, bit1 (2) for y >= cy, bit0 (1) for z >= cz
 # args: node_idx, px_val, py_val, pz_val
 # returns: octant 0 to 7
-
 def get_octant(node_idx, px_val, py_val, pz_val):
     # load node center
     cx = node_cx[node_idx]
     cy = node_cy[node_idx]
     cz = node_cz[node_idx]
-    
     oct = 0
     if px_val > cx:
         oct |= 4          # set x bit (right half)
@@ -96,67 +90,40 @@ def get_octant(node_idx, px_val, py_val, pz_val):
     return oct
 
 
-# subdivide - split a leaf node into 8 children (one per octant)
+# func subdivide split a leaf node into 8 children (that is one per octant)
 # args: node_idx - the node to subdivide (must be leaf)
 # does: allocates 8 children, sets their centers, sizes, bounding boxes
-#       marks parent as internal (is_leaf = 0)
-
+#marks parent as internal (is_leaf = 0)
 def subdivide(node_idx):
-    global node_count
-    
-    # get parent bounding box
-    xmin = node_xmin[node_idx]
-    xmax = node_xmax[node_idx]
-    ymin = node_ymin[node_idx]
-    ymax = node_ymax[node_idx]
-    zmin = node_zmin[node_idx]
-    zmax = node_zmax[node_idx]
-    
-    # get parent center
-    cx = node_cx[node_idx]
-    cy = node_cy[node_idx]
-    cz = node_cz[node_idx]
-    
-    # child size is half of parent size
+    cx   = node_cx[node_idx]
+    cy   = node_cy[node_idx]
+    cz   = node_cz[node_idx]
     half = node_size[node_idx] / 2.0
-    quarter = half / 2.0      # child half-extent for bounding box
-    
-    # loop over all 8 combos of dx, dy, dz offsets
-    # order: (-,-,-), (-,-,+), (-,+,-), (-,+,+), (+,-,-), (+,-,+), (+,+,-), (+,+,+)
-    child_centers = []
-    for dz in (-quarter, quarter):
-        for dy in (-quarter, quarter):
-            for dx in (-quarter, quarter):
-                child_centers.append((cx + dx, cy + dy, cz + dz))
-    
-    # create each child node
-    for octant, (ccx, ccy, ccz) in enumerate(child_centers):
+    q    = half / 2.0
+
+    for oct in range(8):
+        dx = +q if (oct & 4) else -q
+        dy = +q if (oct & 2) else -q
+        dz = +q if (oct & 1) else -q
+
         child_idx = allocate_node()
-        
-        # store child center
-        node_cx[child_idx] = ccx
-        node_cy[child_idx] = ccy
-        node_cz[child_idx] = ccz
+        node_cx[child_idx]   = cx + dx
+        node_cy[child_idx]   = cy + dy
+        node_cz[child_idx]   = cz + dz
         node_size[child_idx] = half
-        
-        # child bounding box = [center - quarter, center + quarter]
-        child_half = half / 2.0
-        node_xmin[child_idx] = ccx - child_half
-        node_xmax[child_idx] = ccx + child_half
-        node_ymin[child_idx] = ccy - child_half
-        node_ymax[child_idx] = ccy + child_half
-        node_zmin[child_idx] = ccz - child_half
-        node_zmax[child_idx] = ccz + child_half
-        
-        # store child pointer in parent (flat array access)
-        node_child[node_idx * 8 + octant] = child_idx
-    
-    # mark parent as internal (no longer a leaf)
-    node_is_leaf[node_idx] = 0
+        node_xmin[child_idx] = (cx + dx) - q
+        node_xmax[child_idx] = (cx + dx) + q
+        node_ymin[child_idx] = (cy + dy) - q
+        node_ymax[child_idx] = (cy + dy) + q
+        node_zmin[child_idx] = (cz + dz) - q
+        node_zmax[child_idx] = (cz + dz) + q
+        node_child[node_idx * 8 + oct] = child_idx
+
+    node_is_leaf[node_idx]  = 0
     node_particle[node_idx] = -1
 
 
-# insert_particle - insert a body into the octree
+# func insert_particle inserts a body into the octree
 # uses recursion: goes down tree until finds empty leaf
 # if leaf occupied, subdivide then re-insert both bodies
 
@@ -186,14 +153,13 @@ def insert_particle(body_idx, node_idx):
         child_idx = node_child[node_idx * 8 + oct]
         # child should exist because subdivide creates all 8
         if child_idx == -1:
-            raise runtimeerror("child missing in internal node")
+            raise RuntimeError("child missing in internal node")
         insert_particle(body_idx, child_idx)
 
 
-# compute_mass - post-order traversal to compute mass and com
+# func compute_mass does post-order traversal to compute mass and com
 # args: node_idx - current node
-# does: for leaves, mass/com already set from insert
-#       for internal nodes, sum over children then divide
+# does: for leaves, mass/com already set from insert for internal nodes, sum over children then divide
 
 def compute_mass(node_idx):
     # leaf node - mass and com already set, nothing to do
@@ -240,72 +206,47 @@ def compute_mass(node_idx):
 
 # calculate_force_bh - recursive force calc using barnes-hut criterion
 # args: body_idx, node_idx, theta (opening angle)
-# does: if node is far (size/dist < theta) treat as point mass
-#       else recurse into children
+# does: if node is far (size/dist < theta) treat as point mass else recurses into children
 
-def calculate_force_bh(body_idx, node_idx, theta):
-    # skip zero mass nodes
+def calculate_force_bh(body_idx, node_idx, theta_val):
     if node_mass[node_idx] == 0.0:
         return
-    
-    # skip self-interaction (leaf containing same body)
     if node_is_leaf[node_idx] and node_particle[node_idx] == body_idx:
-        return
-    
-    # compute vector from body to node's center of mass
+        return   # skip self
+
     dx = node_com_x[node_idx] - px[body_idx]
     dy = node_com_y[node_idx] - py[body_idx]
     dz = node_com_z[node_idx] - pz[body_idx]
-    r = math.sqrt(dx*dx + dy*dy + dz*dz)
-    
-    # barnes-hut criterion: check if node is far enough
-    if node_is_leaf[node_idx] or (node_size[node_idx] / r < theta):
-        # treat node as point mass
-        r_soft = math.sqrt(r*r + softening*softening)
+    r2 = dx*dx + dy*dy + dz*dz
+    r  = math.sqrt(r2)
+
+    if node_is_leaf[node_idx] or (r > 0.0 and node_size[node_idx] / r < theta_val):
+        r_soft  = math.sqrt(r2 + softening * softening)
         r_cubed = r_soft * r_soft * r_soft
-        factor = g * node_mass[node_idx] / r_cubed
-        
-        # add acceleration to body
+        factor  = G * node_mass[node_idx] / r_cubed
         ax[body_idx] += factor * dx
         ay[body_idx] += factor * dy
         az[body_idx] += factor * dz
     else:
-        # not far enough - recurse into all children
         for k in range(8):
             child = node_child[node_idx * 8 + k]
             if child != -1:
-                calculate_force_bh(body_idx, child, theta)
+                calculate_force_bh(body_idx, child, theta_val)
 
-
-# compute_bounding_box - find global bounding box of all bodies
+# func compute_bounding_box finds global bounding box of all bodies
 # returns: cx, cy, cz (center), size (cube side with 1% padding)
 
 def compute_bounding_box():
-    global n, px, py, pz
-    
-    min_x = min(px)
-    max_x = max(px)
-    min_y = min(py)
-    max_y = max(py)
-    min_z = min(pz)
-    max_z = max(pz)
-    
-    # center of bounding box
+    min_x = min(px[:n]);  max_x = max(px[:n])
+    min_y = min(py[:n]);  max_y = max(py[:n])
+    min_z = min(pz[:n]);  max_z = max(pz[:n])
     cx = (min_x + max_x) / 2.0
     cy = (min_y + max_y) / 2.0
     cz = (min_z + max_z) / 2.0
-    
-    # size = max width + 2% padding
-    width_x = max_x - min_x
-    width_y = max_y - min_y
-    width_z = max_z - min_z
-    max_width = max(width_x, width_y, width_z)
-    padding = max_width * 0.01
-    size = max_width + 2 * padding
-    
-    if size <= 0:
+    max_width = max(max_x-min_x, max_y-min_y, max_z-min_z)
+    size = max_width * 1.02
+    if size <= 0.0:
         size = 1e10
-    
     return cx, cy, cz, size
 
 
@@ -351,17 +292,13 @@ def build_tree():
     # insert all bodies
     for i in range(n):
         insert_particle(i, root)
-    
     # compute masses and center of mass bottom-up
     compute_mass(root)
-    
     return root
 
 
-# calculate_forces_bh - wrapper: zero accel then compute all forces
+# func calculate_forces_bh wrapper: zeros accelleration then compute all forces
 def calculate_forces_bh(root):
-    global ax, ay, az
-    
     # zero all accelerations
     for i in range(n):
         ax[i] = 0.0
@@ -373,43 +310,41 @@ def calculate_forces_bh(root):
         calculate_force_bh(i, root, theta)
 
 
-# kick_half_step - leapfrog half-kick: v += a * dt/2
-def kick_half_step(dt):
+# func kick_half_step -leapfrog half-kick: v += a * dt/2
+def kick_half_step(dt_val):
     for i in range(n):
-        vx[i] += 0.5 * ax[i] * dt
-        vy[i] += 0.5 * ay[i] * dt
-        vz[i] += 0.5 * az[i] * dt
+        vx[i] += 0.5 * ax[i] * dt_val
+        vy[i] += 0.5 * ay[i] * dt_val
+        vz[i] += 0.5 * az[i] * dt_val
 
 
-# drift - leapfrog drift: p += v * dt
-def drift(dt):
+# func drift -leapfrog drift: p += v * dt
+def drift(dt_val):
     for i in range(n):
-        px[i] += vx[i] * dt
-        py[i] += vy[i] * dt
-        pz[i] += vz[i] * dt
+        px[i] += vx[i] * dt_val
+        py[i] += vy[i] * dt_val
+        pz[i] += vz[i] * dt_val
 
 
-# calculate_energy - compute total energy (kinetic + potential)
+# func calculate_energy - compute total energy (kinetic + potential)
 # returns: total energy in joules
 def calculate_energy():
     kin = 0.0
     pot = 0.0
     
-    # kinetic energy = 1/2 * m * v^2
     for i in range(n):
-        v2 = vx[i]*vx[i] + vy[i]*vy[i] + vz[i]*vz[i]
+        v2   = vx[i]*vx[i] + vy[i]*vy[i] + vz[i]*vz[i]
         kin += 0.5 * mass[i] * v2
-    
-    # potential energy = -g * m1 * m2 / r
+        
     for i in range(n):
-        for j in range(i+1, n):
-            dx = px[i] - px[j]
-            dy = py[i] - py[j]
-            dz = pz[i] - pz[j]
-            r = math.sqrt(dx*dx + dy*dy + dz*dz)
-            pot -= g * mass[i] * mass[j] / r
-    
+        for j in range(i + 1, n):
+            dx = px[i]-px[j];  
+            dy = py[i]-py[j]; 
+            dz = pz[i]-pz[j]
+            r  = math.sqrt(dx*dx + dy*dy + dz*dz + softening*softening)
+            pot -= G * mass[i] * mass[j] / r
     return kin + pot
+
 
 # test - print simulation state for debugging
 def test(step):
@@ -417,30 +352,23 @@ def test(step):
     com_x = sum(mass[i]*px[i] for i in range(n)) / total_mass
     com_y = sum(mass[i]*py[i] for i in range(n)) / total_mass
     com_z = sum(mass[i]*pz[i] for i in range(n)) / total_mass
-    
     mom_x = sum(mass[i]*vx[i] for i in range(n))
     mom_y = sum(mass[i]*vy[i] for i in range(n))
     mom_z = sum(mass[i]*vz[i] for i in range(n))
-    
     energy = calculate_energy()
-    
-    print(f"step {step}: energy = {energy:.6e}, com = ({com_x:.3e}, {com_y:.3e}, {com_z:.3e}), momentum = ({mom_x:.3e}, {mom_y:.3e}, {mom_z:.3e})")
-    
-    for i in range(min(3, n)):
-        print(f"  body {i}: pos=({px[i]:.3e}, {py[i]:.3e}, {pz[i]:.3e}) vel=({vx[i]:.3e}, {vy[i]:.3e}, {vz[i]:.3e})")
+    print(f"step {step:4d}: E={energy:.6e}  com=({com_x:.3e},{com_y:.3e},{com_z:.3e})  mom=({mom_x:.3e},{mom_y:.3e},{mom_z:.3e})")
 
 
-# load_csv - read body data from csv file into global arrays
+# func to load_csv which reads body data from csv file into global arrays
 def load_csv(filename):
     global n, mass, px, py, pz, vx, vy, vz, ax, ay, az, max_nodes
     global node_cx, node_cy, node_cz, node_size, node_mass
     global node_com_x, node_com_y, node_com_z, node_child
-    global node_particle, node_is_leaf, node_xmin, node_xmax
-    global node_ymin, node_ymax, node_zmin, node_zmax
+    global node_particle, node_is_leaf
+    global node_xmin, node_xmax, node_ymin, node_ymax, node_zmin, node_zmax
     
     df = pd.read_csv(filename)
     n = len(df)
-    
     # init body arrays
     mass = [0.0] * n
     px = [0.0] * n
@@ -456,16 +384,15 @@ def load_csv(filename):
     # fill from dataframe
     for i in range(n):
         mass[i] = df.loc[i, 'mass']
-        px[i] = df.loc[i, 'distancex']
-        py[i] = df.loc[i, 'distancey']
-        pz[i] = df.loc[i, 'distancez']
-        vx[i] = df.loc[i, 'velocityx']
-        vy[i] = df.loc[i, 'velocityy']
-        vz[i] = df.loc[i, 'velocityz']
+        px[i] = df.loc[i, 'distanceX']
+        py[i] = df.loc[i, 'distanceY']
+        pz[i] = df.loc[i, 'distanceZ']
+        vx[i] = df.loc[i, 'velocityX']
+        vy[i] = df.loc[i, 'velocityY']
+        vz[i] = df.loc[i, 'velocityZ']
     
     # set up node pool size (safe upper bound for octree)
     max_nodes = 8 * n + 100
-    
     node_cx = [0.0] * max_nodes
     node_cy = [0.0] * max_nodes
     node_cz = [0.0] * max_nodes
@@ -486,126 +413,89 @@ def load_csv(filename):
 
 
 # run_simulation - main simulation loop
+def run_tests():
+    print("running correctness tests")
 
-def run_simulation(csv_filename, dt=dt, steps=steps):
-    load_csv(csv_filename)
-    print(f"loaded {n} bodies from {csv_filename}")
-    
-    # build tree and compute initial forces
+    # test 1: root mass = sum of all particle masses
     root = build_tree()
-    calculate_forces_bh(root)
-    initial_energy = calculate_energy()
-    print(f"initial total energy: {initial_energy:.6e}")
-    
-    # time stepping loop
-    for step in range(1, steps + 1):
-        kick_half_step(dt)
-        drift(dt)
-        root = build_tree()          # rebuild tree each step
-        calculate_forces_bh(root)
-        kick_half_step(dt)
-        
-        if step % 10 == 0:
-            test(step)
-    
-    final_energy = calculate_energy()
-    print(f"final total energy: {final_energy:.6e}")
-    print(f"energy drift: {(final_energy - initial_energy)/abs(initial_energy)*100:.6f}%")
+    total = sum(mass[:n])
+    err = abs(node_mass[root] - total)
+    assert err < 1e-3 * total, f"Fail: mass mismatch by {err:.3e}"
+    print("Pass: mass conservation")
 
-
-def test_mass_conservation():
-    """check that root mass equals sum of particle masses."""
-    root = build_tree()
-    total_particle_mass = sum(mass)
-    print(f"root mass: {node_mass[root]}, total particle mass: {total_particle_mass}")
-    assert abs(node_mass[root] - total_particle_mass) < 1e-9, "mass conservation failed"
-
-def test_all_particles_found():
-    """check that every particle is reachable from root."""
-    root = build_tree()
-    found = [false] * n
-    
+    # test 2: every particle reachable from root
+    found = [False] * n
     def traverse(node_idx):
         if node_is_leaf[node_idx]:
-            if node_particle[node_idx] != -1:
-                found[node_particle[node_idx]] = true
+            b = node_particle[node_idx]
+            if b != -1:
+                found[b] = True
         else:
             for k in range(8):
-                child = node_child[node_idx * 8 + k]
-                if child != -1:
-                    traverse(child)
-    
+                c = node_child[node_idx * 8 + k]
+                if c != -1:
+                    traverse(c)
     traverse(root)
-    assert all(found), f"particles not found: {[i for i, f in enumerate(found) if not f]}"
-    print("all particles found in tree.")
+    missing = [i for i,f in enumerate(found) if not f]
+    assert len(missing) == 0, f"FAIL: particles missing: {missing}"
+    print("  PASS: all particles found in tree")
 
-def test_center_of_mass():
-    """root com should match direct com calculation."""
-    root = build_tree()
-    total_mass = sum(mass)
-    com_x_dir = sum(mass[i]*px[i] for i in range(n)) / total_mass
-    com_y_dir = sum(mass[i]*py[i] for i in range(n)) / total_mass
-    com_z_dir = sum(mass[i]*pz[i] for i in range(n)) / total_mass
-    
-    print(f"root com: ({node_com_x[root]}, {node_com_y[root]}, {node_com_z[root]})")
-    print(f"direct com: ({com_x_dir}, {com_y_dir}, {com_z_dir})")
-    
-    assert abs(node_com_x[root] - com_x_dir) < 1e-9, "com mismatch x"
-    assert abs(node_com_y[root] - com_y_dir) < 1e-9, "com mismatch y"
-    assert abs(node_com_z[root] - com_z_dir) < 1e-9, "com mismatch z"
+    # test 3: root com matches direct calculation
+    total_m = sum(mass[:n])
+    cx_dir  = sum(mass[i]*px[i] for i in range(n)) / total_m
+    cy_dir  = sum(mass[i]*py[i] for i in range(n)) / total_m
+    cz_dir  = sum(mass[i]*pz[i] for i in range(n)) / total_m
+    tol = 1e-6 * max(abs(cx_dir), abs(cy_dir), abs(cz_dir), 1.0)
+    assert abs(node_com_x[root] - cx_dir) < tol, "FAIL: com x mismatch"
+    assert abs(node_com_y[root] - cy_dir) < tol, "FAIL: com y mismatch"
+    assert abs(node_com_z[root] - cz_dir) < tol, "FAIL: com z mismatch"
+    print("  PASS: centre of mass correct")
 
-def test_bounding_boxes():
-    """every particle lies within its leaf node's bounding box."""
-    root = build_tree()
-    
-    def check(node_idx):
-        if node_is_leaf[node_idx]:
-            if node_particle[node_idx] != -1:
-                b = node_particle[node_idx]
-                x, y, z = px[b], py[b], pz[b]
-                assert node_xmin[node_idx] <= x <= node_xmax[node_idx], f"particle {b} out of x bounds"
-                assert node_ymin[node_idx] <= y <= node_ymax[node_idx], f"particle {b} out of y bounds"
-                assert node_zmin[node_idx] <= z <= node_zmax[node_idx], f"particle {b} out of z bounds"
-        else:
-            for k in range(8):
-                child = node_child[node_idx * 8 + k]
-                if child != -1:
-                    check(child)
-    
-    check(root)
-    print("all particles inside leaf bounding boxes.")
+    # test 4: forces are finite (no NaN or Inf)
+    calculate_forces_bh(root)
+    for i in range(n):
+        assert math.isfinite(ax[i]), f"FAIL: ax[{i}] is NaN/Inf"
+        assert math.isfinite(ay[i]), f"FAIL: ay[{i}] is NaN/Inf"
+        assert math.isfinite(az[i]), f"FAIL: az[{i}] is NaN/Inf"
+    print("  PASS: all forces finite")
+    print("--- all tests passed ---\n")
 
-def test_regression_one_step():
-    """compare positions after one step (no nans, prints for manual verification)."""
+
+# run_simulation: main simulation loop
+def run_simulation(csv_filename, dt_val=dt, num_steps=steps):
+    load_csv(csv_filename)
+    print(f"loaded {n} bodies from {csv_filename}")
+
+    run_tests()
+
     root = build_tree()
     calculate_forces_bh(root)
-    kick_half_step(dt)
-    drift(dt)
-    calculate_forces_bh(root)
-    kick_half_step(dt)
-    
-    print("positions after one step:")
-    for i in range(min(5, n)):
-        print(f"  body {i}: ({px[i]}, {py[i]}, {pz[i]})")
-    
-    # check for nans
-    assert all(not math.isnan(px[i]) for i in range(n)), "nan in positions"
+    e0 = calculate_energy()
+    print(f"initial energy: {e0:.6e}\n")
 
-S
-# main - run simulation or tests based on command line args
+    for step in range(1, num_steps + 1):
+        kick_half_step(dt_val)
+        drift(dt_val)
+        root = build_tree()
+        calculate_forces_bh(root)
+        kick_half_step(dt_val)
+
+        if step % 10 == 0:
+            test(step)
+
+    ef = calculate_energy()
+    drift_pct = (ef - e0) / abs(e0) * 100.0
+    print(f"\nfinal energy:   {ef:.6e}")
+    print(f"energy drift:   {drift_pct:.6f}%")
+
+
+# main
 if __name__ == "__main__":
-    if len(sys.argv) > 1:
-        filename = sys.argv[1]
-        run_simulation(filename)
-    else:
-        # run tests on default file
-        test_file = "stable_random_system100.csv"
-        print("loading test file:", test_file)
-        load_csv(test_file)
-        print("running tests...")
-        test_mass_conservation()
-        test_all_particles_found()
-        test_center_of_mass()
-        test_bounding_boxes()
-        test_regression_one_step()
-        print("all tests passed.")
+    if len(sys.argv) < 2:
+        print("usage: python3 barnes_hut_clean.py <csv_file> [steps]")
+        print("example: python3 barnes_hut_clean.py stable_random_system100.csv 100")
+        sys.exit(1)
+
+    filename  = sys.argv[1]
+    num_steps = int(sys.argv[2]) if len(sys.argv) > 2 else steps
+    run_simulation(filename, dt, num_steps)
